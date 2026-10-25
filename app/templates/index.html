@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Clinical Note Summariser & Jargon Translator | Prompt Engineering</title>
+  <meta name="description" content="An educational prototype demonstrating structured prompt engineering (RCTCO framework) to summarize clinical notes, translate medical jargon, and extract structured clinical entities.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <!-- Lightweight Markdown parser for client-side rendering -->
+  <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+</head>
+<body>
+
+  <!-- Safety & Educational Disclaimer Banner -->
+  <aside class="disclaimer-bar" id="disclaimer-bar" role="alert" aria-label="Medical Disclaimer">
+    <div class="disclaimer-content">
+      <span class="alert-icon">⚠️</span>
+      <p>
+        <strong>Educational Prototype Only:</strong> This tool is an academic demonstration of Prompt Engineering techniques using synthetic records. It does <em>not</em> provide medical advice, diagnoses, or prescriptions. Always consult a licensed healthcare professional.
+      </p>
+    </div>
+    <button class="disclaimer-dismiss-btn" id="disclaimer-dismiss-btn" title="Acknowledge disclaimer">Dismiss</button>
+  </aside>
+
+  <!-- Navigation & Application Header -->
+  <header class="app-header">
+    <div class="header-left">
+      <div class="brand-badge">
+        <span class="brand-symbol">🩺</span>
+        <div class="brand-text">
+          <h1>Clinical Note Summariser <span class="accent-text">&amp; Jargon Translator</span></h1>
+          <p class="brand-subtitle">Prompt Engineering Project &bull; RCTCO Framework Demonstration</p>
+        </div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="provider-pill" id="provider-pill" title="Current LLM Provider">
+        <span class="status-indicator"></span>
+        <span id="provider-label">Loading Provider...</span>
+      </div>
+      <button class="btn-ghost" id="open-methodology-btn" title="View Prompt Engineering architecture">
+        📘 Prompt Framework
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Application Workspace -->
+  <main class="main-layout">
+    
+    <!-- Quick Actions Toolbar -->
+    <section class="toolbar-section" aria-label="Toolbar">
+      <div class="toolbar-group">
+        <span class="toolbar-label">Load Synthetic Cases:</span>
+        <button class="case-chip active" id="case-1-btn" data-case="case-1" title="Cardiology: Acute Coronary Syndrome">
+          🫀 Case 1: Cardiology (NSTEMI)
+        </button>
+        <button class="case-chip" id="case-2-btn" data-case="case-2" title="Neurology: Intractable Migraine">
+          🧠 Case 2: Neurology (Migraine)
+        </button>
+        <button class="case-chip" id="case-3-btn" data-case="case-3" title="Pulmonology: Community-Acquired Pneumonia">
+          🫁 Case 3: Pulmonology (CAP &amp; COPD)
+        </button>
+      </div>
+
+      <div class="toolbar-group toolbar-controls">
+        <!-- Hidden file input for CSV upload -->
+        <input type="file" id="csv-file-input" accept=".csv" style="display: none;" aria-label="Upload CSV File">
+        <button class="btn-outline-small btn-highlight" id="upload-csv-btn" title="Upload a CSV file containing clinical notes">
+          📁 Upload CSV
+        </button>
+        <select class="csv-row-select hidden" id="csv-row-select" title="Select record from uploaded CSV" aria-label="Select CSV Row">
+          <option value="">Select a record...</option>
+        </select>
+        <a href="/api/sample-csv" class="btn-outline-small" id="download-sample-csv-link" download="sample_clinical_notes.csv" title="Download sample CSV dataset to test">
+          ⬇️ Sample CSV
+        </a>
+        <button class="btn-outline-small" id="export-csv-btn" title="Export current results to a new CSV file">
+          📥 Export CSV
+        </button>
+        <button class="btn-outline-small" id="clear-note-btn" title="Clear clinical note">Clear</button>
+        <button class="btn-outline-small" id="reset-sample-btn" title="Reload original case">Reset</button>
+      </div>
+    </section>
+
+    <!-- Dual Pane Interface -->
+    <div class="dual-pane-container">
+      
+      <!-- Left Pane: Clinical Note Input -->
+      <section class="pane input-pane" aria-label="Clinical Note Source">
+        <div class="pane-header">
+          <div class="pane-title-group">
+            <h2>Source Clinical Documentation</h2>
+            <span class="meta-badge" id="patient-tag">Synthetic Record</span>
+          </div>
+          <div class="stats-counter" id="text-stats">
+            <span id="word-count">0 words</span> &bull; <span id="char-count">0 chars</span>
+          </div>
+        </div>
+
+        <div class="pane-body">
+          <div class="textarea-wrapper">
+            <textarea 
+              id="clinical-note-input" 
+              placeholder="Paste or edit synthetic clinical note here..." 
+              spellcheck="false"
+              aria-label="Clinical Note Text Area"
+            ></textarea>
+          </div>
+        </div>
+
+        <div class="pane-footer">
+          <div class="action-buttons-grid">
+            <button class="btn-primary" id="btn-process-all" title="Execute Summarisation, Jargon Translation, and Entity Extraction">
+              ✨ Run Full Pipeline
+            </button>
+            <button class="btn-secondary" id="btn-compare-prompts" title="Compare Naive vs Structured Prompt">
+              ⚖️ A/B Prompt Compare
+            </button>
+          </div>
+          <p class="input-helper">
+            🔒 <em>Anti-hallucination active: Grounded strictly to explicit facts in the note.</em>
+          </p>
+        </div>
+      </section>
+
+      <!-- Right Pane: Analysis & Results -->
+      <section class="pane output-pane" aria-label="Analysis Results">
+        <div class="pane-header">
+          <!-- Navigation Tabs -->
+          <nav class="tabs-nav" role="tablist">
+            <button class="tab-btn active" role="tab" id="tab-btn-summary" data-target="tab-summary" aria-selected="true">
+              📑 Plain Summary
+            </button>
+            <button class="tab-btn" role="tab" id="tab-btn-jargon" data-target="tab-jargon" aria-selected="false">
+              📖 Jargon Translator <span class="badge-count" id="jargon-count">0</span>
+            </button>
+            <button class="tab-btn" role="tab" id="tab-btn-entities" data-target="tab-entities" aria-selected="false">
+              🧬 Clinical Entities
+            </button>
+            <button class="tab-btn highlight-tab" role="tab" id="tab-btn-compare" data-target="tab-compare" aria-selected="false">
+              ⚖️ A/B Comparison
+            </button>
+          </nav>
+        </div>
+
+        <div class="pane-body">
+          <!-- Loading State Overlay -->
+          <div class="loading-state hidden" id="loading-spinner">
+            <div class="pulse-ring"></div>
+            <p class="loading-text" id="loading-msg">Executing Prompt Pipeline with Zero-Extrapolation Guardrails...</p>
+            <span class="loading-subtext">Calibrating to 6th-to-8th grade reading level</span>
+          </div>
+
+          <!-- Empty Initial State -->
+          <div class="empty-state" id="empty-state">
+            <div class="empty-icon">🩺</div>
+            <h3>Ready to Analyze Clinical Record</h3>
+            <p>Select a synthetic case from above or enter a clinical note on the left, then click <strong>"Run Full Pipeline"</strong> or <strong>"A/B Prompt Compare"</strong>.</p>
+          </div>
+
+          <!-- Tab 1: Plain Language Summary -->
+          <div class="tab-content" id="tab-summary">
+            <div class="result-header-bar">
+              <span class="framework-tag">Prompt Framework: RCTCO (Role &bull; Context &bull; Task &bull; Constraints &bull; Output)</span>
+              <button class="btn-copy" id="copy-summary-btn" title="Copy markdown summary">📋 Copy</button>
+            </div>
+            <article class="markdown-body" id="summary-render-container">
+              <!-- Rendered markdown goes here -->
+            </article>
+          </div>
+
+          <!-- Tab 2: Medical Jargon Translator -->
+          <div class="tab-content hidden" id="tab-jargon">
+            <div class="jargon-toolbar">
+              <input type="text" id="jargon-filter-input" placeholder="Search medical terms or categories..." class="search-input">
+              <div class="category-filters" id="category-filter-tags">
+                <button class="cat-chip active" data-cat="all">All</button>
+                <button class="cat-chip" data-cat="diagnosis">Diagnosis</button>
+                <button class="cat-chip" data-cat="symptom">Symptom</button>
+                <button class="cat-chip" data-cat="medication">Medication</button>
+                <button class="cat-chip" data-cat="procedure">Procedure</button>
+                <button class="cat-chip" data-cat="test">Test</button>
+              </div>
+            </div>
+            <div class="jargon-grid" id="jargon-cards-container">
+              <!-- Jargon cards injected dynamically -->
+            </div>
+          </div>
+
+          <!-- Tab 3: Structured Clinical Entities -->
+          <div class="tab-content hidden" id="tab-entities">
+            <div class="entities-wrapper" id="entities-container">
+              
+              <!-- Diagnoses Section -->
+              <section class="entity-group">
+                <h4 class="entity-group-title">🎯 Diagnoses Explicitly Mentioned</h4>
+                <div class="entity-cards-list" id="entities-diagnoses-list"></div>
+              </section>
+
+              <!-- Medications Section -->
+              <section class="entity-group">
+                <h4 class="entity-group-title">💊 Medications &amp; Posology</h4>
+                <div class="entity-cards-list" id="entities-medications-list"></div>
+              </section>
+
+              <!-- Symptoms Section -->
+              <section class="entity-group">
+                <h4 class="entity-group-title">🩺 Reported Symptoms</h4>
+                <div class="tags-cluster" id="entities-symptoms-list"></div>
+              </section>
+
+              <!-- Tests & Procedures -->
+              <section class="entity-group">
+                <h4 class="entity-group-title">🔬 Diagnostic Tests &amp; Findings</h4>
+                <div class="entity-cards-list" id="entities-tests-list"></div>
+              </section>
+
+              <!-- Follow-up Directives -->
+              <section class="entity-group">
+                <h4 class="entity-group-title">📅 Follow-up Instructions</h4>
+                <ul class="checklist-items" id="entities-followup-list"></ul>
+              </section>
+
+              <!-- Missing & Uncertain Information Alert Box -->
+              <section class="entity-group missing-info-box">
+                <h4 class="missing-title">⚠️ Incomplete, Pending, or Omitted Information Detected</h4>
+                <ul class="missing-items-list" id="entities-missing-list"></ul>
+              </section>
+
+            </div>
+          </div>
+
+          <!-- Tab 4: Prompt Engineering Comparison Lab -->
+          <div class="tab-content hidden" id="tab-compare">
+            <div class="comparison-banner">
+              <h3>🔬 Prompt Engineering A/B Evaluation Lab</h3>
+              <p>Compare how an unstructured <em>Naive Prompt</em> produces clinical risks and hallucinations, while an <em>RCTCO Structured Prompt</em> maintains clinical safety.</p>
+            </div>
+
+            <div class="comparison-grid">
+              
+              <!-- Naive Prompt Column -->
+              <div class="comparison-card naive-card">
+                <div class="card-header">
+                  <div class="card-title-row">
+                    <span class="badge-danger">Baseline (Naive Prompt)</span>
+                    <span class="prompt-text-preview">"Summarize this doctor's note for a patient"</span>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <div class="comparison-text-box" id="naive-output-box"></div>
+                  
+                  <div class="flaws-container">
+                    <h5>🚨 Identified Prompting Pitfalls:</h5>
+                    <ul class="flaw-list" id="naive-flaws-list"></ul>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Structured Prompt Column -->
+              <div class="comparison-card structured-card">
+                <div class="card-header">
+                  <div class="card-title-row">
+                    <span class="badge-success">Engineered (Structured Prompt)</span>
+                    <span class="prompt-text-preview">RCTCO: System Persona + Grounding + 6th-Grade Target</span>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <div class="comparison-text-box markdown-body" id="structured-output-box"></div>
+
+                  <div class="strengths-container">
+                    <h5>✅ Prompt Engineering Advantages:</h5>
+                    <ul class="strength-list" id="structured-strengths-list"></ul>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+            <!-- Comparison Criteria Matrix -->
+            <div class="criteria-table-container">
+              <h4>Academic Evaluation Rubric: Prompt Dimension Analysis</h4>
+              <table class="rubric-table">
+                <thead>
+                  <tr>
+                    <th>Dimension</th>
+                    <th>Naive Baseline Prompt</th>
+                    <th>Our Structured Prompt (RCTCO)</th>
+                  </tr>
+                </thead>
+                <tbody id="rubric-table-body">
+                  <!-- Filled dynamically -->
+                </tbody>
+              </table>
+            </div>
+
+          </div>
+
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <!-- Prompt Methodology Modal -->
+  <dialog class="modal-dialog" id="methodology-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>📐 Prompt Engineering Architecture &amp; Methodology</h3>
+        <button class="btn-close" id="close-methodology-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <h4>The RCTCO Framework</h4>
+        <div class="rctco-breakdown">
+          <div class="rctco-item">
+            <strong>Role (R):</strong> Board-certified patient health literacy nurse educator. Primes empathy and non-technical language.
+          </div>
+          <div class="rctco-item">
+            <strong>Context (C):</strong> Anxious patient reading clinical documentation; target 6th–8th grade reading level, short sentences.
+          </div>
+          <div class="rctco-item">
+            <strong>Task (T):</strong> Distinct prompts for Summarisation, Jargon Translation, and JSON Entity Extraction.
+          </div>
+          <div class="rctco-item">
+            <strong>Constraints (C):</strong> Strict zero-extrapolation guardrail, no unsolicited medical advice, explicit flagging of missing data.
+          </div>
+          <div class="rctco-item">
+            <strong>Output Format (O):</strong> Valid markdown with standard headings and strict JSON schemas for machine parsing.
+          </div>
+        </div>
+        <p class="modal-footer-note">Designed for BTech CS Prompt Engineering coursework presentation &amp; viva defense.</p>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Application Logic -->
+  <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
